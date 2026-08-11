@@ -1,0 +1,16 @@
+# Core - always needed
+requests>=2.31
+beautifulsoup4>=4.12
+pypdf>=4.0
+
+# Optional but recommended
+lxml>=5.0                 # faster/more forgiving HTML parsing
+
+# HTML -> PDF conversion. Install at least one of the following.
+# 1) Playwright (best fidelity):   pip install playwright && playwright install chromium
+# playwright>=1.44
+# 2) Headless Chrome via Selenium (same stack as the original script):
+# selenium>=4.20
+# webdriver-manager>=4.0
+# 3) No browser required, but no JavaScript either (needs system libs):
+# weasyprint>=61

@@ -1,0 +1,25 @@
+[
+  {
+    "type": "redhat",
+    "id": "rhbk",
+    "product": "red_hat_build_of_keycloak",
+    "version": "26.0",
+    "label": "Red Hat build of Keycloak"
+  },
+  {
+    "type": "redhat",
+    "id": "ocp",
+    "product": "openshift_container_platform",
+    "version": "latest",
+    "label": "OpenShift Container Platform"
+  },
+  {
+    "type": "mkdocs",
+    "id": "llm-d",
+    "label": "llm-d",
+    "root_url": "https://llm-d.ai/docs",
+    "version": "latest",
+    "mode": "single",
+    "exclude": ["/blog/", "/tags/"]
+  }
+]

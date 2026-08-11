@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rhoai-docsync"
+version = "1.0.0"
+description = "Discover and download Red Hat AI, Connectivity Link and community documentation as PDFs"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Erkan", email = "erkerc@users.noreply.github.com" }]
+keywords = ["red hat", "openshift-ai", "documentation", "pdf", "scraper", "offline-docs"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Documentation",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "pypdf>=4.0",
+]
+
+[project.optional-dependencies]
+playwright = ["playwright>=1.44"]
+selenium = ["selenium>=4.20", "webdriver-manager>=4.0"]
+weasyprint = ["weasyprint>=61"]
+fast = ["lxml>=5.0"]
+
+[project.urls]
+Homepage = "https://github.com/erkerc/rhoai-docsync"
+Issues = "https://github.com/erkerc/rhoai-docsync/issues"
+
+[project.scripts]
+docsync = "docsync.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["docsync*"]

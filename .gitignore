@@ -1,0 +1,78 @@
+# ---------------------------------------------------------------------------
+# Downloaded documentation - never commit fetched content to this repo
+# ---------------------------------------------------------------------------
+# Document formats, anywhere in the tree
+*.pdf
+*.PDF
+*.epub
+*.mobi
+*.azw3
+*.docx
+*.odt
+*.chm
+
+# Partial / in-flight downloads and run state
+*.part
+*.crdownload
+*.download
+.docsync-manifest.json
+**/.docsync-manifest.json
+run.json
+report.json
+*-report.json
+
+# Default and commonly used output directories
+redhat-docs/
+rhoai-docs/
+docs-out/
+docs-output/
+downloads/
+output/
+out/
+pdfs/
+*_pdfs/
+openshift_ai_*_pdfs/
+
+# Rendered HTML snapshots
+*.html.snapshot
+snapshots/
+
+# ---------------------------------------------------------------------------
+# Local configuration that may contain internal URLs or hosts
+# ---------------------------------------------------------------------------
+sources.json
+sources.local.json
+*.local.json
+.env
+.env.*
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.tox/
+.nox/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------------------------------------------------------------------------
+# Editors / OS
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
