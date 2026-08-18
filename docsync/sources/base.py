@@ -25,6 +25,7 @@ class Doc:
     render_urls: List[str] = field(default_factory=list)  # used when converting
     render_titles: List[str] = field(default_factory=list)
     fingerprint: Optional[str] = None  # change signal for converted documents
+    category: str = ""                 # section of the product index, e.g. "Networking"
     note: str = ""
 
     @property

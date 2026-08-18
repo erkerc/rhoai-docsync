@@ -27,6 +27,7 @@ from urllib.parse import urljoin, urlparse
 from ..http_client import HttpError
 from ..util import (
     LOG,
+    version_key,
     clean_segment,
     compile_patterns,
     dedupe,
@@ -56,7 +57,16 @@ PRODUCT_ROOT_RE = re.compile(
 )
 PDF_HREF_RE = re.compile(r'"(/(?:[a-z]{2}(?:-[a-z]{2})?/)?documentation/[^"\']*?/pdf/[^"\']+?\.pdf)"', re.IGNORECASE)
 
+#: Above this many guides, hint that the user probably wants to narrow the run.
+LARGE_PRODUCT_WARNING = 40
+
 SKIP_SLUGS = {"index", "legal-notice", "making-open-source-more-inclusive"}
+# Headings that are page furniture rather than a documentation category.
+SKIP_HEADINGS_RE = re.compile(
+    r"^(left navigation|jump to category|version|on this page|table of contents|"
+    r"featured links|select your language|theme|learn|communities|about red hat)",
+    re.IGNORECASE,
+)
 # Not documentation versions, just other pages under /documentation/.
 SKIP_VERSION_TOKENS = {"html", "html-single", "pdf", "epub", "index", "topics", "all"}
 
@@ -131,6 +141,8 @@ class RedHatDocsSource(Source):
         include_products: Optional[Sequence[str]] = None,
         exclude_products: Optional[Sequence[str]] = None,
         community: bool = False,
+        group_by_category: bool = False,
+        categories: Optional[Sequence[str]] = None,
     ) -> None:
         self.id = id
         self.product = product
@@ -141,6 +153,8 @@ class RedHatDocsSource(Source):
         self.include_products = compile_patterns(include_products)
         self.exclude_products = compile_patterns(exclude_products)
         self.community = community
+        self.group_by_category = group_by_category
+        self.categories = compile_patterns(categories)
 
     # -- version handling -------------------------------------------------
     def resolve_product(self, http, product: str, version: str) -> Optional[ProductInfo]:
@@ -149,14 +163,20 @@ class RedHatDocsSource(Source):
         try:
             html, final_url = http.get_text(index_url)
         except HttpError as exc:
-            LOG.warning("[%s] cannot open %s (%s)", self.id, index_url, exc)
-            if version and version != "latest":
+            # Not every product serves a /latest alias (OpenShift Container
+            # Platform does not); the product root redirects to the newest one.
+            LOG.debug("[%s] %s unavailable (%s); trying the product root", self.id, index_url, exc)
+            if version and version not in ("latest", "", None):
+                LOG.warning("[%s] cannot open %s (%s)", self.id, index_url, exc)
                 return None
             return self._resolve_from_product_root(http, product)
 
         soup = make_soup(html)
         display, parsed_version = parse_index_title(soup.title.string if soup.title else "")
         versions = self._versions_on_page(soup, product)
+
+        if not versions:
+            versions = self._versions_from_text(soup)
 
         resolved = parsed_version
         if version and version != "latest" and not resolved:
@@ -172,6 +192,7 @@ class RedHatDocsSource(Source):
         return ProductInfo(product, display, resolved, final_url, versions)
 
     def _resolve_from_product_root(self, http, product: str) -> Optional[ProductInfo]:
+        """Resolve via /documentation/<product>, which redirects to the current version."""
         root = f"{DOC_ROOT}/{product}"
         try:
             html, final_url = http.get_text(root)
@@ -179,14 +200,36 @@ class RedHatDocsSource(Source):
             LOG.warning("[%s] product %s is not reachable (%s)", self.id, product, exc)
             return None
         soup = make_soup(html)
-        display, _ = parse_index_title(soup.title.string if soup.title else "")
+        display, title_version = parse_index_title(soup.title.string if soup.title else "")
         versions = self._versions_on_page(soup, product)
-        latest = pick_latest(versions)
+
+        # Preference order: the version in the page title (the root redirects to
+        # the newest one), then the URL we landed on, then the version links.
+        latest = title_version
+        if not latest:
+            landed = VERSION_RE.search(urlparse(final_url).path)
+            if landed and landed.group("version").lower() not in SKIP_VERSION_TOKENS:
+                latest = landed.group("version")
+        if not latest:
+            latest = pick_latest(versions)
         if not latest:
             LOG.warning("[%s] no versions found on %s", self.id, root)
             return None
+
+        if not versions:
+            versions = self._versions_from_text(soup)
         return ProductInfo(product, display or prettify_slug(product).replace("_", " "),
-                           latest, f"{DOC_ROOT}/{product}/{latest}", versions)
+                           latest, f"{DOC_ROOT}/{product}/{latest}", dedupe([latest] + versions))
+
+    @staticmethod
+    def _versions_from_text(soup) -> List[str]:
+        """Some products render the version switcher as plain text, not links."""
+        found: List[str] = []
+        for element in soup.find_all(["li", "option", "span", "a"]):
+            text = element.get_text(" ", strip=True)
+            if text and len(text) <= 8 and looks_like_version(text):
+                found.append(text)
+        return sorted(dedupe(found), key=version_key, reverse=True)[:40]
 
     @staticmethod
     def _versions_on_page(soup, product: str) -> List[str]:
@@ -217,10 +260,10 @@ class RedHatDocsSource(Source):
             return []
         soup = make_soup(html)
 
-        targets: List[Tuple[ProductInfo, List[str]]] = []
-        own_slugs = self._guide_slugs(soup, info.slug)
-        if own_slugs:
-            targets.append((info, own_slugs))
+        targets: List[Tuple[ProductInfo, Dict[str, str]]] = []
+        own = self._select_categories(self._guide_categories(soup, info.slug))
+        if own:
+            targets.append((info, own))
 
         if self.portal and self.expand_portal:
             for product, version in self._related_products(soup, skip=info.slug):
@@ -237,10 +280,18 @@ class RedHatDocsSource(Source):
                 except HttpError as exc:
                     LOG.warning("[%s] cannot open %s (%s)", self.id, sub.index_url, exc)
                     continue
-                slugs = self._guide_slugs(make_soup(sub_html), sub.slug)
+                slugs = self._select_categories(self._guide_categories(make_soup(sub_html), sub.slug))
                 if slugs:
                     LOG.info("[%s]   + %s %s (%d guides)", self.id, sub.display, sub.version, len(slugs))
                     targets.append((sub, slugs))
+
+        total = sum(len(slugs) for _, slugs in targets)
+        if total >= LARGE_PRODUCT_WARNING:
+            LOG.info(
+                "[%s] %d guides - this is a big set; --category, --include or --only-new "
+                "will narrow it down",
+                self.id, total,
+            )
 
         docs: List[Doc] = []
         seen: Set[str] = set()
@@ -248,25 +299,49 @@ class RedHatDocsSource(Source):
             todo = [s for s in slugs if f"{product_info.slug}/{product_info.version}/{s}" not in seen]
             seen.update(f"{product_info.slug}/{product_info.version}/{s}" for s in todo)
             with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-                for doc in pool.map(lambda s: self._build_doc(http, product_info, s), todo):
+                built = pool.map(lambda s: self._build_doc(http, product_info, s, slugs.get(s, "")), todo)
+                for doc in built:
                     if doc:
                         docs.append(doc)
-        docs.sort(key=lambda d: (d.product, d.version, d.title))
+        docs.sort(key=lambda d: (d.product, d.version, d.category, d.title))
         return docs
 
+    def _select_categories(self, slugs: Dict[str, str]) -> Dict[str, str]:
+        if not self.categories:
+            return slugs
+        return {slug: cat for slug, cat in slugs.items() if matches_any(cat or slug, self.categories)}
+
     def _guide_slugs(self, soup, product: str) -> List[str]:
-        slugs = []
-        for anchor in soup.find_all("a", href=True):
-            match = GUIDE_RE.search(anchor["href"])
-            if not match:
+        return sorted(self._guide_categories(soup, product))
+
+    def _guide_categories(self, soup, product: str) -> Dict[str, str]:
+        """slug -> the index section it sits under ('Networking', 'Install', ...).
+
+        Large products group their guides under h2 headings; walking the
+        document in order lets us keep that structure instead of dumping a
+        hundred PDFs into one directory. Products without headings simply get
+        an empty category.
+        """
+        found: Dict[str, str] = {}
+        current = ""
+        for element in soup.find_all(["h1", "h2", "h3", "a"]):
+            name = element.name.lower()
+            if name in ("h1", "h2"):
+                text = element.get_text(" ", strip=True)
+                if text and not SKIP_HEADINGS_RE.search(text):
+                    current = re.sub(r"\s+", " ", text)[:60]
                 continue
-            if match.group("product").lower() != product.lower():
+            href = element.get("href")
+            if not href:
+                continue
+            match = GUIDE_RE.search(href)
+            if not match or match.group("product").lower() != product.lower():
                 continue
             slug = match.group("slug")
             if slug.lower() in SKIP_SLUGS:
                 continue
-            slugs.append(slug)
-        return sorted(dedupe(slugs))
+            found.setdefault(slug, current)
+        return found
 
     def _related_products(self, soup, skip: str) -> List[Tuple[str, str]]:
         """Other (product, version) pairs linked from a portal page."""
@@ -297,7 +372,7 @@ class RedHatDocsSource(Source):
         return sorted(best.items())
 
     # -- per-guide resolution ---------------------------------------------
-    def _build_doc(self, http, info: ProductInfo, slug: str) -> Optional[Doc]:
+    def _build_doc(self, http, info: ProductInfo, slug: str, category: str = "") -> Optional[Doc]:
         page_url = f"{DOC_ROOT}/{info.slug}/{info.version}/html/{slug}/index"
         single_url = f"{DOC_ROOT}/{info.slug}/{info.version}/html-single/{slug}/index"
         title = prettify_slug(slug).replace("_", " ")
@@ -330,6 +405,10 @@ class RedHatDocsSource(Source):
         filename = safe_filename(candidates[0].rsplit("/", 1)[-1]) if candidates else \
             safe_filename(f"{clean_segment(product_display)}-{info.version}-{clean_segment(title)}-en-US.pdf")
 
+        rel_dir = f"{info.slug}/{info.version}"
+        if self.group_by_category and category:
+            rel_dir = f"{rel_dir}/{safe_filename(category).replace('/', '-')}"
+
         return Doc(
             key=f"redhat:{info.slug}:{info.version}:{slug}",
             source_id=self.id,
@@ -337,7 +416,8 @@ class RedHatDocsSource(Source):
             version=info.version,
             title=title,
             filename=filename,
-            rel_dir=f"{info.slug}/{info.version}",
+            rel_dir=rel_dir,
+            category=category,
             page_url=page_url,
             pdf_url=candidates[0] if candidates else None,
             pdf_candidates=candidates,

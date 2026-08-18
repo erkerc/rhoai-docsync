@@ -68,6 +68,30 @@ def build_catalog(versions: Optional[Dict[str, str]] = None) -> Dict[str, Source
             version=ver("rhcl", "1.4"),
             label="Red Hat Connectivity Link",
         ),
+        # --- OpenShift ------------------------------------------------------------
+        # ~100 guides per version, so grouped into category sub-directories by
+        # default and kept out of DEFAULT_SOURCES - ask for it explicitly.
+        RedHatDocsSource(
+            id="ocp",
+            product="openshift_container_platform",
+            version=ver("ocp", "latest"),
+            label="OpenShift Container Platform",
+            group_by_category=True,
+        ),
+        RedHatDocsSource(
+            id="rosa",
+            product="red_hat_openshift_service_on_aws",
+            version=ver("rosa", "latest"),
+            label="Red Hat OpenShift Service on AWS (ROSA)",
+            group_by_category=True,
+        ),
+        RedHatDocsSource(
+            id="ocp-virt",
+            product="red_hat_openshift_virtualization",
+            version=ver("ocp-virt", "latest"),
+            label="Red Hat OpenShift Virtualization",
+        ),
+
         # --- Community ------------------------------------------------------------
         MkDocsSource(
             id="maas",
@@ -89,6 +113,8 @@ def build_catalog(versions: Optional[Dict[str, str]] = None) -> Dict[str, Source
 DEFAULT_SOURCES = ["rhai", "rhoai", "rhaiis", "rhai-inference", "rhcl"]
 #: Added by --community.
 COMMUNITY_SOURCES = ["maas", "kuadrant"]
+#: Selected by --source openshift. Large - not part of the default set.
+OPENSHIFT_SOURCES = ["ocp", "rosa", "ocp-virt"]
 
 
 def select_sources(
@@ -113,6 +139,8 @@ def select_sources(
                 ids += [s.id for s in catalog.values()]
             elif part == "community":
                 ids += [s.id for s in catalog.values() if s.community]
+            elif part == "openshift":
+                ids += OPENSHIFT_SOURCES
             elif part == "redhat":
                 ids += [s.id for s in catalog.values() if not s.community]
             elif part == "default":
