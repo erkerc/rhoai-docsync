@@ -25,6 +25,8 @@ examples:
   docsync download --out ~/redhat-docs
   docsync download --source rhoai --version 3.5 --out ~/redhat-docs
   docsync download --community --only-new --out ~/redhat-docs
+  docsync download --source ocp --version 4.22 --out ~/redhat-docs
+  docsync download --source ocp --category 'network|install' --out ~/redhat-docs
   docsync download --source kuadrant --community-mode per-page --out ~/redhat-docs
 """
 
@@ -51,6 +53,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="when expanding a portal page, only follow these products")
     common.add_argument("--exclude-product", action="append", metavar="RE",
                         help="when expanding a portal page, skip these products")
+    common.add_argument("--category", action="append", metavar="RE",
+                        help="only guides in matching index sections, e.g. --category 'network|install' "
+                             "(large products such as OpenShift group their guides under headings)")
+    common.add_argument("--group-by-category", dest="group_by_category", action="store_true", default=None,
+                        help="file guides into per-category sub-directories (default for OpenShift)")
+    common.add_argument("--no-group-by-category", dest="group_by_category", action="store_false",
+                        help="keep every guide of a product in one directory")
     common.add_argument("--no-portal-expand", action="store_true",
                         help="do not follow products linked from a portal index")
     common.add_argument("--community-mode", choices=("single", "per-page"), default="single",
@@ -138,6 +147,10 @@ def gather_sources(args):
         if isinstance(source, RedHatDocsSource):
             if args.no_portal_expand:
                 source.expand_portal = False
+            if args.group_by_category is not None:
+                source.group_by_category = args.group_by_category
+            if args.category:
+                source.categories = compile_patterns(args.category)
             if args.include_product:
                 source.include_products = compile_patterns(args.include_product)
             if args.exclude_product:
@@ -164,7 +177,7 @@ def discover(args, http, sources) -> List[Doc]:
         for doc in found:
             if doc.key in seen:
                 continue
-            haystack = f"{doc.product} {doc.version} {doc.title} {doc.filename}"
+            haystack = f"{doc.product} {doc.version} {doc.category} {doc.title} {doc.filename}"
             if include and not matches_any(haystack, include):
                 continue
             if matches_any(haystack, exclude):
@@ -263,7 +276,7 @@ def cmd_list(args) -> int:
     if args.json:
         print(json.dumps([{
             "key": d.key, "source": d.source_id, "product": d.product, "version": d.version,
-            "title": d.title, "filename": d.filename, "page_url": d.page_url,
+            "title": d.title, "category": d.category, "filename": d.filename, "page_url": d.page_url,
             "pdf_url": d.pdf_url, "pages_to_render": len(d.render_urls), "note": d.note,
         } for d in docs], indent=2))
         return 0
@@ -278,7 +291,8 @@ def cmd_list(args) -> int:
             current = header
             print(f"\n{header}  [{doc.source_id}]")
         marker = "pdf " if doc.pdf_url else "conv"
-        print(f"  {marker}  {doc.title}")
+        suffix = f"   [{doc.category}]" if doc.category else ""
+        print(f"  {marker}  {doc.title}{suffix}")
         LOG.debug("        %s", doc.pdf_url or doc.page_url)
     print(f"\n{len(docs)} document(s) from {len({d.source_id for d in docs})} source(s)")
     return 0

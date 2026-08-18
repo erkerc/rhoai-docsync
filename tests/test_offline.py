@@ -136,6 +136,85 @@ def main():
     ok &= check("portal still returns its own guides", any("Validated" in d.title or "validated" in d.title.lower()
                                                            for d in portal_docs), str([d.title for d in portal_docs]))
 
+    # --- OpenShift: categories, filename, version via product root ---------
+    OCP_INDEX = """
+    <html><head><title>OpenShift Container Platform | 4.22 | Red Hat Documentation</title></head>
+    <body>
+    <h1>OpenShift Container Platform 4.22</h1>
+    <h2>Left Navigation</h2><h3>Version</h3>
+    <ul><li>4.22</li><li>4.21</li><li>4.20</li></ul>
+    <h2>Jump to category</h2><a href="#Install">Install</a>
+    <h2>Install</h2>
+    <a href="/en/documentation/openshift_container_platform/4.22/html/installing_on_aws">Installing on AWS</a>
+    <h2>Configure</h2>
+    <a href="/en/documentation/openshift_container_platform/4.22/html/hosted_control_planes">Hosted control planes</a>
+    <h2>Networking</h2>
+    <a href="/en/documentation/openshift_container_platform/4.22/html/networking_overview">Networking overview</a>
+    <a href="/en/documentation/openshift_container_platform/4.22/html/virtualization/networking#virt">Virt networking</a>
+    <a href="/en/documentation/red_hat_openshift_virtualization/4.22">Other product</a>
+    </body></html>
+    """
+    ocp_http = FakeHttp({
+        "openshift_container_platform/4.22/html/hosted_control_planes/index":
+            guide_page("Hosted control planes", "OpenShift Container Platform", "4.22"),
+        "openshift_container_platform/4.22/html/installing_on_aws/index":
+            guide_page("Installing on AWS", "OpenShift Container Platform", "4.22"),
+        "openshift_container_platform/4.22/html/networking_overview/index":
+            guide_page("Networking overview", "OpenShift Container Platform", "4.22"),
+        "openshift_container_platform/4.22/html/virtualization/index":
+            guide_page("Virtualization", "OpenShift Container Platform", "4.22"),
+        "openshift_container_platform/4.22": OCP_INDEX,
+        "openshift_container_platform": OCP_INDEX,
+    })
+    ocp = RedHatDocsSource(id="ocp", product="openshift_container_platform",
+                           version="4.22", group_by_category=True)
+    ocp_docs = ocp.discover(ocp_http, workers=3)
+    by_title = {d.title: d for d in ocp_docs}
+
+    ok &= check("OCP guides discovered, other products ignored", len(ocp_docs) == 4,
+                sorted(by_title))
+
+    hcp = by_title.get("Hosted control planes")
+    expected_pdf = ("https://docs.redhat.com/en/documentation/openshift_container_platform/4.22/"
+                    "pdf/hosted_control_planes/"
+                    "OpenShift_Container_Platform-4.22-Hosted_control_planes-en-US.pdf")
+    ok &= check("OCP PDF URL matches the real published one",
+                hcp is not None and hcp.pdf_candidates[0] == expected_pdf,
+                hcp.pdf_candidates[0] if hcp else "missing")
+    ok &= check("category captured from the index heading",
+                hcp is not None and hcp.category == "Configure", hcp.category if hcp else "-")
+    ok &= check("category becomes a sub-directory",
+                hcp is not None and hcp.rel_dir == "openshift_container_platform/4.22/Configure",
+                hcp.rel_dir if hcp else "-")
+    ok &= check("page-furniture headings are not treated as categories",
+                all(d.category not in ("Left Navigation", "Version", "Jump to category")
+                    for d in ocp_docs), [d.category for d in ocp_docs])
+    ok &= check("nested slug collapses to its guide",
+                by_title.get("Virtualization") is not None
+                and by_title["Virtualization"].category == "Networking")
+
+    flat = RedHatDocsSource(id="ocp", product="openshift_container_platform", version="4.22")
+    ok &= check("grouping is off unless asked for",
+                flat.discover(ocp_http, workers=3)[0].rel_dir == "openshift_container_platform/4.22")
+
+    only_net = RedHatDocsSource(id="ocp", product="openshift_container_platform",
+                                version="4.22", categories=["network"])
+    ok &= check("--category filters by index section",
+                {d.title for d in only_net.discover(ocp_http, workers=3)}
+                == {"Networking overview", "Virtualization"},
+                {d.title for d in only_net.discover(ocp_http, workers=3)})
+
+    # 'latest' must work even though OCP has no /latest alias and its version
+    # switcher is plain text rather than links.
+    root_http = FakeHttp({"openshift_container_platform": OCP_INDEX})
+    latest = RedHatDocsSource(id="ocp", product="openshift_container_platform", version="latest")
+    info = latest.resolve_product(root_http, "openshift_container_platform", "latest")
+    ok &= check("latest falls back to the product root", info is not None and info.version == "4.22",
+                info.version if info else "none")
+    ok &= check("plain-text version switcher is still read",
+                info is not None and "4.21" in info.available_versions,
+                info.available_versions if info else [])
+
     # --- mkdocs helpers ---------------------------------------------------
     site = MkDocsSource(id="kuadrant", label="Kuadrant", root_url="https://docs.kuadrant.io", version="1.5.x")
     base = site.base_url("1.5.x")

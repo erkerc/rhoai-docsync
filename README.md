@@ -87,6 +87,16 @@ python -m docsync download --out ~/redhat-docs
 # Just the serving and inference guides
 python -m docsync download --include 'serving|inference|llm-d|models-as-a-service' --out ~/redhat-docs
 
+# OpenShift Container Platform - latest, or a pinned version
+python -m docsync download --source ocp --out ~/redhat-docs
+python -m docsync download --source ocp --version 4.22 --out ~/redhat-docs
+
+# Only some sections of it (guides are grouped under the index headings)
+python -m docsync download --source ocp --category 'install|network|observability' --out ~/redhat-docs
+
+# Everything OpenShift: OCP, ROSA and Virtualization
+python -m docsync download --source openshift --out ~/redhat-docs
+
 # Kuadrant as one PDF per page instead of one merged book
 python -m docsync download --source kuadrant --community-mode per-page --out ~/redhat-docs
 
@@ -105,10 +115,14 @@ python -m docsync download --community --dry-run
 | `rhai-inference` | Red Hat AI Inference |
 | `rhelai` | Red Hat Enterprise Linux AI |
 | `rhcl` | Red Hat Connectivity Link |
+| `ocp` | OpenShift Container Platform (~100 guides per version) |
+| `rosa` | Red Hat OpenShift Service on AWS |
+| `ocp-virt` | Red Hat OpenShift Virtualization |
 | `maas` | Open Data Hub Models-as-a-Service (community) |
 | `kuadrant` | Kuadrant (community) |
 
-`--source` also accepts `all`, `redhat`, `community` and `default`. Add your own products in a
+`--source` also accepts `all`, `redhat`, `openshift`, `community` and `default`. OpenShift is not
+in the default set — it is roughly 100 guides and several GB per version, so ask for it by name. Add your own products in a
 JSON file (see [`sources.example.json`](sources.example.json)) and pass `--config sources.json`.
 
 ### Incremental behaviour
@@ -126,6 +140,24 @@ size, SHA-256, ETag and `Last-Modified` of every file.
 Community sites are checked with a fingerprint built from every page's ETag, so a merged PDF is
 only rebuilt when a page actually changed. Delete a PDF and re-run: it comes back. Delete the
 manifest: files are re-verified but not duplicated.
+
+### Large products
+
+OpenShift ships around a hundred guides per version. Those sit under category headings on the
+index page (`Install`, `Networking`, `API Reference`, …), and docsync keeps that structure:
+
+- `--category RE` fetches only the matching sections
+- `--group-by-category` files each guide into a sub-directory named after its section; this is
+  the default for `ocp` and `rosa`, and `--no-group-by-category` turns it off
+- `docsync list --source ocp` prints every guide with its category, so you can see the sections
+  before committing to a download
+
+```
+redhat-docs/openshift_container_platform/4.22/
+├── Configure/OpenShift_Container_Platform-4.22-Hosted_control_planes-en-US.pdf
+├── Install/OpenShift_Container_Platform-4.22-Installing_on_AWS-en-US.pdf
+└── Networking/OpenShift_Container_Platform-4.22-Networking_overview-en-US.pdf
+```
 
 ### Output layout
 

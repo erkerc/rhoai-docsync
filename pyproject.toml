@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rhoai-docsync"
-version = "1.0.1"
+version = "1.1.0"
 description = "Discover and download Red Hat AI, Connectivity Link and community documentation as PDFs"
 readme = "README.md"
 license = { text = "MIT" }
