@@ -165,6 +165,54 @@ class BrowserSession:
             return self._page.evaluate("() => navigator.userAgent")
         return self._driver.execute_script(script)
 
+    def print_pdf(self, url: str, dest, css: str = "", wait: float = 1.5) -> None:
+        """Print a page to PDF using this already-running browser.
+
+        Sharing the session matters: Playwright's sync API refuses to start a
+        second instance in the same thread, so a browser opened for the 403
+        warm-up must also be the one that renders.
+        """
+        import base64 as _b64
+        import os as _os
+
+        self.start()
+        self.visit(url, wait=wait)
+        dest = str(dest)
+        _os.makedirs(_os.path.dirname(dest) or ".", exist_ok=True)
+
+        if self.backend == "playwright":
+            if css:
+                self._page.add_style_tag(content=css)
+            self._page.emulate_media(media="screen")
+            self._page.pdf(
+                path=dest,
+                format="A4",
+                print_background=True,
+                margin={"top": "14mm", "bottom": "14mm", "left": "12mm", "right": "12mm"},
+            )
+            return
+
+        if css:
+            self._driver.execute_script(
+                "var s=document.createElement('style');s.textContent=arguments[0];"
+                "document.head.appendChild(s);", css,
+            )
+        result = self._driver.execute_cdp_cmd(
+            "Page.printToPDF",
+            {
+                "printBackground": True, "preferCSSPageSize": True,
+                "paperWidth": 8.27, "paperHeight": 11.69,
+                "marginTop": 0.55, "marginBottom": 0.55,
+                "marginLeft": 0.47, "marginRight": 0.47,
+                "transferMode": "ReturnAsBase64",
+            },
+        )
+        data = _b64.b64decode(result["data"])
+        if not data.startswith(b"%PDF-"):
+            raise BrowserUnavailable("the browser returned something that is not a PDF")
+        with open(dest, "wb") as handle:
+            handle.write(data)
+
     def fetch_bytes(self, url: str, timeout: int = 120) -> bytes:
         """Download a binary URL from inside the page context (same cookies, same TLS)."""
         self.start()

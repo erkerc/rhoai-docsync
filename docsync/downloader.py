@@ -119,7 +119,15 @@ class Downloader:
                         self._log_result(result)
 
         if to_convert:
-            results.extend(self._convert_all(to_convert))
+            try:
+                results.extend(self._convert_all(to_convert))
+            except Exception as exc:  # keep whatever already downloaded
+                LOG.error("conversion stage failed: %s", exc)
+                LOG.debug("", exc_info=True)
+                done = {id(r.doc) for r in results}
+                for doc in to_convert:
+                    if id(doc) not in done:
+                        results.append(Result(doc, FAILED, message=f"conversion stage failed: {exc}"))
 
         self._save_manifest()
         results.sort(key=lambda r: (r.doc.source_id, r.doc.product, r.doc.version, r.doc.title))
@@ -216,14 +224,6 @@ class Downloader:
             return results
 
         LOG.info("converting %d document(s) with %s", len(docs), renderer.name)
-        try:
-            renderer.start()
-        except RenderError as exc:
-            for doc in docs:
-                results.append(Result(doc, FAILED, message=str(exc)))
-                self._log_result(results[-1])
-            return results
-
         try:
             for doc in docs:
                 results.append(self._convert_one(renderer, doc))

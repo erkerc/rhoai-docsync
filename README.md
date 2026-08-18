@@ -200,12 +200,14 @@ a refusal came from a proxy, from the site's bot protection, or from a wrong URL
 | discovery returns 0 documents | wrong product slug or version; `docsync list -v` prints the URLs it tried |
 | Selenium cannot start Chrome | install Chrome/Chromium, or use `--pdf-engine playwright` |
 | slow community runs | `--no-fingerprint` skips the per-page change check |
+| `Playwright Sync API inside the asyncio loop` | fixed in 1.0.1 — the browser opened for a 403 is now reused for rendering; `pip install -U` or pull latest |
 
 ## Development
 
 ```bash
 python tests/test_offline.py         # discovery, filename construction, manifest, CLI
 python tests/test_download_local.py  # probing, downloads, 304s, --only-new, --force
+python tests/test_render_selection.py # engine selection and browser reuse
 ```
 
 Both suites run without network access; the second starts a throwaway HTTP server that

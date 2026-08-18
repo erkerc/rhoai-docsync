@@ -309,6 +309,36 @@ class WkhtmltopdfRenderer(BaseRenderer):
             Path(css_path).unlink(missing_ok=True)
 
 
+class SharedBrowserRenderer(BaseRenderer):
+    """Renders through a BrowserSession that somebody else owns.
+
+    When a 403 forced docsync to open headless Chrome, that instance must be
+    reused: Playwright's sync API raises "Sync API inside the asyncio loop" if
+    a second instance is started in the same thread, and a second Selenium
+    driver would just waste memory.
+    """
+
+    def __init__(self, session) -> None:
+        self.session = session
+        self.name = f"{getattr(session, 'backend', None) or 'browser'} (shared)"
+
+    def available(self) -> bool:
+        return self.session is not None
+
+    def start(self) -> None:
+        self.session.start()
+
+    def render(self, url: str, dest: Path, wait: float = 1.5) -> Path:
+        try:
+            self.session.print_pdf(url, dest, css=print_css_for(url), wait=wait)
+            return dest
+        except Exception as exc:
+            raise RenderError(f"{self.name}: {exc}") from exc
+
+    def stop(self) -> None:
+        pass  # the HTTP client owns this session and closes it
+
+
 ENGINES = {
     "playwright": PlaywrightRenderer,
     "selenium": SeleniumRenderer,
@@ -319,27 +349,49 @@ AUTO_ORDER = ["playwright", "selenium", "weasyprint", "wkhtmltopdf"]
 
 
 def get_renderer(preference: str = "auto", http=None) -> Optional[BaseRenderer]:
-    """Return an available renderer, or None when conversion is impossible."""
+    """Return a renderer that has actually started, or None if none can."""
+    for renderer in iter_renderers(preference, http):
+        try:
+            renderer.start()
+            LOG.debug("using %s for HTML to PDF conversion", renderer.name)
+            return renderer
+        except Exception as exc:
+            LOG.warning("%s could not start (%s); trying the next engine", renderer.name, exc)
+            try:
+                renderer.stop()
+            except Exception:
+                pass
+    LOG.warning(
+        "no usable HTML to PDF engine - install one of: "
+        "'pip install playwright && playwright install chromium', selenium + Chrome, or weasyprint"
+    )
+    return None
+
+
+def iter_renderers(preference: str = "auto", http=None):
+    """Yield candidate renderers, best first, without starting them."""
     if preference == "none":
-        return None
+        return
+
+    # A browser opened for the 403 fallback is reused rather than duplicated.
+    session = getattr(http, "active_browser", lambda: None)()
+    if session is not None and preference in ("auto", "playwright", "selenium", "browser"):
+        backend = getattr(session, "backend", None)
+        if preference in ("auto", "browser") or backend in (None, preference):
+            yield SharedBrowserRenderer(session)
+
     order = AUTO_ORDER if preference == "auto" else [preference]
     for name in order:
         cls = ENGINES.get(name)
         if cls is None:
             LOG.warning("unknown PDF engine %r", name)
-            return None
+            return
         renderer = cls(http=http) if name == "weasyprint" else cls()
         if renderer.available():
-            LOG.debug("using %s for HTML to PDF conversion", name)
-            return renderer
-        if preference != "auto":
+            yield renderer
+        elif preference != "auto":
             LOG.warning("PDF engine %r is not installed or not usable", name)
-            return None
-    LOG.warning(
-        "no HTML to PDF engine available - install one of: "
-        "'pip install playwright && playwright install chromium', selenium + Chrome, or weasyprint"
-    )
-    return None
+            return
 
 
 def merge_pdfs(parts: Sequence[Path], dest: Path, titles: Optional[Sequence[str]] = None,

@@ -239,6 +239,14 @@ class HttpClient:
             LOG.debug("carried %d cookie(s) over from the browser", len(cookies))
             return bool(cookies)
 
+    def active_browser(self):
+        """The browser already running for the 403 fallback, if any.
+
+        Never starts one - callers use this to reuse an open session rather
+        than launching a second, conflicting instance.
+        """
+        return self._browser
+
     def browser_html(self, url: str) -> Optional[str]:
         browser = self._get_browser()
         if browser is None:
